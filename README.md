@@ -362,15 +362,4 @@ grep -rniE "prisma|nodemailer|ethereal|inmemory|consolemail|CreditCardPayment|De
 
 ---
 
-## Limitações e melhorias futuras
-
-- O pagamento é **simulado**: não há integração com gateway real.
-- Uma recusa de cartão responde 500, mas semanticamente seria um erro do cliente (por exemplo, 402 com `AppError`).
-- Não há testes automatizados. O modo `test` e as interfaces tornam isso viável (um `OrderService` com repositório em memória roda sem banco).
-- O `NotificationService` poderia ter uma interface (`INotificationService`) para ser trocado por outro canal, como SMS.
-- Um *middleware* de erro do Express devolveria sempre JSON limpo, inclusive para corpos inválidos (hoje o Express devolve uma página HTML com o caminho de arquivos).
-- O `PrismaClient` poderia ser injetado nos repositórios pelo construtor, o que facilitaria testes e o encerramento da conexão.
-
----
-
 Autor: Thiago
