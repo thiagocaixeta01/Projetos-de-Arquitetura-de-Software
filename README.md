@@ -1,2 +1,2 @@
-# Projetos-da-Disciplina-de-Arquitetura-de-Software
+# Projetos-de-Arquitetura-de-Software
 
