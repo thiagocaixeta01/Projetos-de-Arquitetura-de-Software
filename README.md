@@ -62,7 +62,7 @@ Os modos são definidos **só** pela variável `APP_ENV` no arquivo `.env`. Nenh
 | **E-mail** | `EtherealMailProvider`: envia para o Ethereal e devolve um link de visualização | `ConsoleMailProvider`: imprime o e-mail no console do servidor |
 | **Pedidos** | `PrismaOrderRepository`: grava no SQLite (`prisma/dev.db`) | `InMemoryOrderRepository`: guarda em um array na memória (some ao reiniciar) |
 | **Internet** | Necessária para o e-mail (Ethereal) | Não necessária |
-| **`emailPreview` na resposta** | Link do Ethereal | e-mail no console |
+| **`emailPreview` na resposta** | Link do Ethereal | `null` |
 
 > O catálogo de produtos continua vindo do SQLite nos dois modos, porque o banco é local e não depende de rede.
 
