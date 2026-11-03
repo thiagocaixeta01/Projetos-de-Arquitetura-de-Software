@@ -62,7 +62,7 @@ Os modos são definidos **só** pela variável `APP_ENV` no arquivo `.env`. Nenh
 | **E-mail** | `EtherealMailProvider`: envia para o Ethereal e devolve um link de visualização | `ConsoleMailProvider`: imprime o e-mail no console do servidor |
 | **Pedidos** | `PrismaOrderRepository`: grava no SQLite (`prisma/dev.db`) | `InMemoryOrderRepository`: guarda em um array na memória (some ao reiniciar) |
 | **Internet** | Necessária para o e-mail (Ethereal) | Não necessária |
-| **`emailPreview` na resposta** | Link do Ethereal | `null` |
+| **`emailPreview` na resposta** | Link do Ethereal | e-mail no console |
 
 > O catálogo de produtos continua vindo do SQLite nos dois modos, porque o banco é local e não depende de rede.
 
@@ -331,15 +331,15 @@ grep -rniE "prisma|nodemailer|ethereal|inmemory|consolemail|CreditCardPayment|De
 
 <!-- Marque as caixas conforme concluir cada etapa. -->
 
-- [ ] InversifyJS 7, `reflect-metadata` e `dotenv` instalados e configurados
-- [ ] Pagamentos refatorados para `PaymentMethodRegistry` (sem estado)
-- [ ] `types.ts` criado e decorators aplicados em todas as classes
-- [ ] `ConsoleMailProvider` e `InMemoryOrderRepository` criados
-- [ ] `container.ts` montando tudo e escolhendo o modo pelo `APP_ENV`
-- [ ] `app.ts` enxuto
-- [ ] Totais corretos (produto 1 = R$ 110, produto 2 = R$ 50) nos dois modos
-- [ ] Modo `test` funcionando sem internet
-- [ ] Comandos de verificação sem resultados fora do `container.ts`
+- [x] InversifyJS 7, `reflect-metadata` e `dotenv` instalados e configurados
+- [x] Pagamentos refatorados para `PaymentMethodRegistry` (sem estado)
+- [x] `types.ts` criado e decorators aplicados em todas as classes
+- [x] `ConsoleMailProvider` e `InMemoryOrderRepository` criados
+- [x] `container.ts` montando tudo e escolhendo o modo pelo `APP_ENV`
+- [x] `app.ts` enxuto
+- [x] Totais corretos (produto 1 = R$ 110, produto 2 = R$ 50) nos dois modos
+- [x] Modo `test` funcionando sem internet
+- [x] Comandos de verificação sem resultados fora do `container.ts`
 
 ---
 
@@ -362,4 +362,4 @@ grep -rniE "prisma|nodemailer|ethereal|inmemory|consolemail|CreditCardPayment|De
 
 ---
 
-Autor: Thiago
+Autor: Thiago Caixeta
