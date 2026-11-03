@@ -1,3 +1,4 @@
 export interface IPaymentMethod {
-    process(amount: number): Promise<void>
+    readonly name: string;
+    process(amount: number, details?: any): Promise<void>;
 }

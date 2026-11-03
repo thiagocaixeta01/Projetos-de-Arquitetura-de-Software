@@ -1,8 +1,11 @@
 import { IMailProvider } from '../providers/IMailProvider';
 import { IProduct } from '../domain/IProduct';
+import { inject, injectable } from 'inversify';
+import { TYPES } from '../container/types';
 
+@injectable()
 export class NotificationService {
-  constructor(private mailProvider: IMailProvider) {}
+  constructor( @inject(TYPES.MailProvider) private mailProvider: IMailProvider) {}
 
   async sendOrderConfirmation(
     customer: string,

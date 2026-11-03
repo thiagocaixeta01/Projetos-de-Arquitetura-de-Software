@@ -1,22 +1,24 @@
 import { Request, Response } from 'express';
 import { OrderService } from '../services/OrderService';
-import { PaymentMethodFactory } from '../payments/PaymentMethodFactory';
 import { AppError } from '../errors/AppError';
 import logger from '../lib/logger';
+import { injectable, inject } from 'inversify';
+import { TYPES } from '../container/types';
 
+
+@injectable()
 export class OrderController {
-  constructor(private orderService: OrderService) {}
+  constructor( @inject(TYPES.OrderService) private orderService: OrderService) {}
 
   processOrder = async (req: Request, res: Response) => {
     try {
       const { customer, items, paymentMethod, paymentDetails } = req.body;
 
-      const payment = PaymentMethodFactory.create(paymentMethod, paymentDetails);
-
       const result = await this.orderService.execute({
         customer,
         items,
-        paymentMethod: payment,
+        paymentMethod,
+        paymentDetails,
       });
 
       return res.json({

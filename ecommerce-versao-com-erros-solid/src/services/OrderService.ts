@@ -5,23 +5,31 @@ import { IPaymentMethod } from "../payments/IPaymentMethod";
 import { IProduct } from "../domain/IProduct";
 import { AppError } from "../errors/AppError";
 import { ProductFactory } from "../domain/ProductFactory";
+import { PaymentMethodRegistry } from "../payments/PaymentMethodRegistry";
+import { inject, injectable } from "inversify";
+import { TYPES } from "../container/types";
 
+@injectable()
 export class OrderService {
   constructor(
-    private productRepository: IProductRepository,
-    private orderRepository: IOrderRepository,
-    private notificationService: NotificationService,
+    @inject(TYPES.ProductRepository) private productRepository: IProductRepository,
+    @inject(TYPES.OrderRepository) private orderRepository: IOrderRepository,
+    @inject(TYPES.NotificationService) private notificationService: NotificationService,
+    @inject(TYPES.PaymentMethodRegistry) private paymentMethodRegistry: PaymentMethodRegistry
   ) {}
 
   async execute(input: {
     customer: string;
     items: { productId: number; quantity: number }[];
-    paymentMethod: IPaymentMethod;
+    paymentMethod: string;
+    paymentDetails?: any;
   }) {
     // 1. VALIDAR
     if (!input.items || input.items.length === 0) {
       throw new AppError("Carrinho vazio", 400);
     }
+
+    const method = this.paymentMethodRegistry.get(input.paymentMethod);
 
     // 2. TOTAL
     let total = 0;
@@ -44,7 +52,7 @@ export class OrderService {
     }
 
     // 3. PAGAR
-    await input.paymentMethod.process(total);
+    await method.process(total, input.paymentDetails);
 
     // 4. SALVAR
     const order = await this.orderRepository.create({

@@ -1,14 +1,16 @@
 import { IPaymentMethod } from "./IPaymentMethod";
 import logger from '../lib/logger';
+import { injectable } from "inversify";
 
+@injectable()
 export class CreditCardPayment implements IPaymentMethod {
-  constructor(private details: { cardNumber: string; cvv: string }) {}
+  readonly name = 'credit_card';
 
-  async process(amount: number): Promise<void> {
+  async process(amount: number, details: { cardNumber: string; cvv: string }): Promise<void> {
     
-    logger.info(`Processando cartão final ${this.details.cardNumber.slice(-4)}`);
+    logger.info(`Processando cartão final ${details.cardNumber.slice(-4)}`);
 
-    if (this.details.cvv === '000') {
+    if (details.cvv === '000') {
       throw new Error('Cartão recusado');
     }
 
