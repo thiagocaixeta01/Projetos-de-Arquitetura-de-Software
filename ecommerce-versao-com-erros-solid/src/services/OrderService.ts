@@ -1,7 +1,6 @@
 import { IProductRepository } from "../repositories/IProductRepository";
-import { IOrderRepository } from "../repositories/IOrderRepository";
+import { IOrderRepository, Order } from "../repositories/IOrderRepository";
 import { NotificationService } from "./NotificationService";
-import { IPaymentMethod } from "../payments/IPaymentMethod";
 import { IProduct } from "../domain/IProduct";
 import { AppError } from "../errors/AppError";
 import { ProductFactory } from "../domain/ProductFactory";
@@ -72,5 +71,15 @@ export class OrderService {
 
     // 6. RETORNAR
     return { orderId: order.id, emailPreview };
+  }
+
+  async getById(id: number): Promise<Order> {
+    const order = await this.orderRepository.findById(id);
+
+    if(!order){
+      throw new AppError('Pedido não encontrado', 404);
     }
+
+    return order;
+  }
 }
