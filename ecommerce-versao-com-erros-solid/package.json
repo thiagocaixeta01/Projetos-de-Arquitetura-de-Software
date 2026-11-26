@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:push": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
-    "start": "prisma db push && tsx prisma/seed.ts && tsx src/server.ts"
+    "start": "prisma db push && tsx prisma/seed.ts && tsx src/server.ts",
+    "worker": "tsx src/worker.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -16,6 +17,7 @@
     "express": "^4.21.0",
     "inversify": "^7.11.0",
     "nodemailer": "^7.0.11",
+    "redis": "^5.12.4",
     "reflect-metadata": "^0.2.2",
     "winston": "^3.11.0"
   },
