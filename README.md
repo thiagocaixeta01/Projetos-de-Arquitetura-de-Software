@@ -1,12 +1,12 @@
 # E-commerce SOLID: do código legado ao container Docker
 
-Backend de e-commerce em TypeScript usado em três trabalhos encadeados da disciplina de Arquitetura de Software. Cada trabalho continua o anterior, por isso os três vivem neste mesmo repositório, e a explicação de cada um está em uma seção deste README.
+Backend de e-commerce em TypeScript usado em quatro trabalhos encadeados da disciplina de Arquitetura de Software. Cada trabalho continua o anterior, por isso os quatro vivem neste mesmo repositório, e a explicação de cada um está em uma seção deste README.
 
-| | Projeto 1 | Projeto 2 | Projeto 3 |
-|---|---|---|---|
-| **Tema** | Refatoração aplicando SOLID | Inversão de Controle com InversifyJS | Containers com Docker Compose e PostgreSQL |
-| **Ponto de partida** | Um `OrderController` "God Class" com toda a lógica | O resultado do Projeto 1, com montagem manual (`new`) | O resultado do Projeto 2, rodando direto na máquina com SQLite |
-| **Resultado** | Responsabilidades separadas em camadas, ligadas por interfaces | Montagem automática por container, com os modos `dev` e `test` | API e banco em containers, PostgreSQL no lugar do SQLite e a rota `GET /orders/:id` |
+| | Projeto 1 | Projeto 2 | Projeto 3 | Projeto 4 |
+|---|---|---|---|---|
+| **Tema** | Refatoração aplicando SOLID | Inversão de Controle com InversifyJS | Containers com Docker Compose e PostgreSQL | Fila de mensagens com Redis e worker |
+| **Ponto de partida** | Um `OrderController` "God Class" com toda a lógica | O resultado do Projeto 1, com montagem manual (`new`) | O resultado do Projeto 2, rodando direto na máquina com SQLite | O resultado do Projeto 3, em que o e-mail é enviado dentro da requisição |
+| **Resultado** | Responsabilidades separadas em camadas, ligadas por interfaces | Montagem automática por container, com os modos `dev` e `test` | API e banco em containers, PostgreSQL no lugar do SQLite e a rota `GET /orders/:id` | A API publica o pedido numa fila do Redis e um worker, em outro container, envia o e-mail |
 
 ## Sumário
 
@@ -15,14 +15,15 @@ Backend de e-commerce em TypeScript usado em três trabalhos encadeados da disci
 3. [Projeto 1: refatoração SOLID](#projeto-1-refatoração-solid)
 4. [Projeto 2: container IoC com InversifyJS](#projeto-2-container-ioc-com-inversifyjs)
 5. [Projeto 3: Docker Compose, PostgreSQL e GET /orders/:id](#projeto-3-docker-compose-postgresql-e-get-ordersid)
-6. [Conceitos aplicados](#conceitos-aplicados)
-7. [Limitações e melhorias futuras](#limitações-e-melhorias-futuras)
+6. [Projeto 4: fila no Redis, worker e ADR](#projeto-4-fila-no-redis-worker-e-adr)
+7. [Conceitos aplicados](#conceitos-aplicados)
+8. [Limitações e melhorias futuras](#limitações-e-melhorias-futuras)
 
 ---
 
 ## Visão geral e tecnologias
 
-A API recebe pedidos em `POST /orders` (valida o carrinho, calcula total e frete, processa o pagamento, grava o pedido e envia um e-mail de confirmação) e permite consultá-los em `GET /orders/:id`.
+A API recebe pedidos em `POST /orders` (valida o carrinho, calcula total e frete, processa o pagamento, grava o pedido e o publica numa fila) e permite consultá-los em `GET /orders/:id`. Um **worker**, em outro container, lê a fila e envia o e-mail de confirmação.
 
 | Camada | Tecnologia |
 |---|---|
@@ -33,6 +34,7 @@ A API recebe pedidos em `POST /orders` (valida o carrinho, calcula total e frete
 | E-mail | Nodemailer com Ethereal (caixa de e-mail de teste) |
 | Injeção de dependência | InversifyJS 7 e `reflect-metadata` |
 | Variáveis de ambiente | `dotenv` |
+| Fila de mensagens | Redis 7 (lista com `LPUSH` / `BRPOP`) e o pacote `redis` |
 | Containers | Docker e Docker Compose |
 
 ---
@@ -66,9 +68,10 @@ O `--build` reconstrói a imagem da API. Use-o sempre que mudar o código, senã
 
 O que acontece, na ordem:
 
-1. O serviço `banco` (PostgreSQL) inicia e fica `healthy`.
-2. O serviço `api` só inicia depois disso.
+1. Os serviços `banco` (PostgreSQL) e `redis` iniciam e ficam `healthy`.
+2. A `api` e o `worker` só iniciam depois disso (a `api` espera o banco e o Redis, e o `worker` espera o Redis).
 3. A `api` executa `npm start`: cria as tabelas (`prisma db push`), cadastra os produtos (seed) e sobe o servidor em `http://localhost:3000`.
+4. O `worker` executa `npm run worker`: conecta ao Redis e fica esperando pedidos na fila.
 
 ### 3. Escolher o modo de execução
 
@@ -79,17 +82,16 @@ Os modos são definidos **só** pela variável `APP_ENV` no arquivo `.env`. Nenh
 | **E-mail** | `EtherealMailProvider`: envia para o Ethereal e devolve um link de visualização | `ConsoleMailProvider`: imprime o e-mail no console do servidor |
 | **Pedidos** | `PrismaOrderRepository`: gravados no PostgreSQL | `InMemoryOrderRepository`: guardados em um array na memória (somem ao reiniciar a API) |
 | **Internet** | Necessária para o e-mail (Ethereal) | Não necessária |
-| **`emailPreview` na resposta** | Link do Ethereal | `null` |
+| **Onde o e-mail aparece** | No **log do worker**, com o link de visualização do Ethereal | No **log do worker**, impresso pelo `ConsoleMailProvider` |
 
-<!-- CONFIRMAR: o que o ConsoleMailProvider retorna e o valor de emailPreview no modo test. -->
 
 > O catálogo de **produtos** vem do PostgreSQL nos dois modos. Por isso o serviço `banco` é necessário mesmo em `test`.
 
-Para trocar de modo, edite o `.env` e **recrie a API** (reiniciar não relê o arquivo):
+Para trocar de modo, edite o `.env` e **recrie a API e o worker** (reiniciar não relê o arquivo):
 
 ```bash
 # exemplo: APP_ENV=test no .env, e depois
-docker compose up -d --force-recreate api
+docker compose up -d --force-recreate api worker
 ```
 
 ### 4. Testar
@@ -111,10 +113,11 @@ Resposta de sucesso:
 ```json
 {
   "message": "Pedido processado com sucesso",
-  "orderId": 1,
-  "emailPreview": "https://ethereal.email/message/..."
+  "orderId": 1
 }
 ```
+
+> O e-mail é enviado **depois**, pelo worker, então a resposta não traz mais o `emailPreview`. Para ver o e-mail (e o link do Ethereal), leia o log do worker: `docker compose logs -f worker`.
 
 Consultar o pedido criado:
 
@@ -160,7 +163,10 @@ Respostas de erro (sempre no formato `{"error": "..."}`):
 | Objetivo | Comando |
 |---|---|
 | Ver o estado dos containers | `docker compose ps` |
-| Ler os logs da API ou do banco | `docker compose logs api` / `docker compose logs banco` |
+| Ler os logs (o e-mail aparece no do worker) | `docker compose logs -f worker` (ou `api`, `banco`, `redis`) |
+| Subir mais de um worker | `docker compose up -d --scale worker=2` |
+| Ver quantos pedidos esperam na fila | `docker compose exec redis redis-cli LLEN orders:email` |
+| Parar só o worker (os pedidos esperam na fila) | `docker compose stop worker` e `docker compose start worker` |
 | Parar **sem perder os dados** | `docker compose down` |
 | Parar e **apagar os dados** (volume) | `docker compose down -v` |
 | Consultar o banco | `docker compose exec banco psql -U ecommerce -d ecommerce -c 'SELECT * FROM "Order";'` |
@@ -168,7 +174,7 @@ Respostas de erro (sempre no formato `{"error": "..."}`):
 
 ### Por que `npm run dev` direto na máquina não funciona mais
 
-O `DATABASE_URL` aponta para o host `banco`, que é o nome do serviço dentro da rede interna do Compose. Esse nome só existe lá dentro. Além disso, o Postgres **não publica porta** para a sua máquina (de propósito), então não há como o Node de fora alcançá-lo. Rode e teste sempre pelo Compose.
+O `DATABASE_URL` aponta para o host `banco`, e o `REDIS_URL` para o host `redis`. Esses são nomes de serviço dentro da rede interna do Compose e só existem lá dentro. Além disso, o Postgres e o Redis **não publicam porta** para a sua máquina (de propósito), então não há como o Node de fora alcançá-los. Rode e teste sempre pelo Compose.
 
 ---
 
@@ -589,11 +595,204 @@ docker compose up --build
 - [x] `compose.yaml` com `banco` (healthcheck, volume, sem porta publicada) e `api`
 - [x] `findById` nos dois repositórios, `getById` no service, `getOrder` no controller e rota registrada
 - [x] `GET` devolve 200, 404 para pedido inexistente e 400 para id inválido
-- [ ] Persistência dos pedidos confirmada depois de `down` e `up`
-- [ ] Seed sem duplicar confirmado
-- [ ] Rota testada no modo `test` pelo Compose
-- [ ] Clone limpo testado (`cp .env.example .env` e `docker compose up --build`)
-- [ ] Repositório público conferido em janela anônima
+- [x] Persistência dos pedidos confirmada depois de `down` e `up`
+- [x] Seed sem duplicar confirmado
+- [x] Rota testada no modo `test` pelo Compose
+- [x] Clone limpo testado (`cp .env.example .env` e `docker compose up --build`)
+- [x] Repositório público conferido em janela anônima
+
+---
+
+## Projeto 4: fila no Redis, worker e ADR
+
+### Objetivo e motivação
+
+Até o Projeto 3, o e-mail de confirmação era enviado **dentro** da requisição `POST /orders`. Isso causava dois problemas:
+
+1. **A resposta ficava lenta**, porque esperava a ida e volta ao servidor SMTP.
+2. **Uma falha no e-mail derrubava um pedido já pago e gravado.** O cliente recebia 500, tentava de novo, e o pedido era duplicado.
+
+O Projeto 4 separa quem **recebe** o pedido de quem **envia** o e-mail. A API grava o pedido, deixa um recado numa **fila do Redis** e responde. Um **worker**, em outro container, lê a fila e envia o e-mail. A decisão completa, com as alternativas e os custos, está no [ADR 001](docs/adr-001-fila-de-email.md).
+
+### O que mudou em relação ao Projeto 3
+
+| Aspecto | Projeto 3 | Projeto 4 | Por quê |
+|---|---|---|---|
+| Envio do e-mail | Dentro do `OrderService`, antes de responder | Em um **worker** separado | A resposta não espera mais o e-mail, e uma falha nele não afeta o pedido |
+| `OrderService` | Chamava o `NotificationService` | Grava o pedido e **publica** na fila (`IOrderQueue`) | O service conhece só a interface da fila |
+| Fila | Não existia | Lista do Redis (`LPUSH` / `BRPOP`) | Mensagens esperam com o worker parado, e cada uma vai para um só worker |
+| Containers | `banco` e `api` | `banco`, `redis`, `api` e `worker` | O worker roda a mesma imagem da API com outro comando |
+| `POST /orders` | Devolvia `orderId` e `emailPreview` | Devolve só `orderId` | O e-mail ainda não foi enviado quando a resposta sai |
+| Onde o e-mail aparece | Na resposta | No **log do worker** | Idem |
+| `NotificationService` | Chamado pelo `OrderService` | Chamado pelo worker, com um método novo que recebe a mensagem da fila | O worker fica fino |
+| `container.ts` | Registrava os serviços | Registra também a `RedisOrderQueue` | Continua sendo o único arquivo que conhece classes concretas |
+
+### Arquitetura
+
+```mermaid
+flowchart LR
+    U["Cliente (curl, navegador)"] -->|"porta 3000"| API
+    subgraph COMPOSE["Rede interna do Docker Compose"]
+        API["api: Express"] -->|"banco:5432"| DB[("banco: PostgreSQL")]
+        API -->|"LPUSH orders:email"| R[("redis: fila")]
+        R -->|"BRPOP"| W["worker (uma ou mais réplicas)"]
+    end
+    W -->|"SMTP, no modo dev"| ML["Ethereal"]
+```
+
+Só a `api` publica porta para a máquina. O `banco` e o `redis` ficam acessíveis apenas pela rede interna.
+
+### Fluxo de um pedido
+
+```mermaid
+sequenceDiagram
+    participant C as OrderController
+    participant S as OrderService
+    participant OR as IOrderRepository
+    participant Q as IOrderQueue
+    participant R as Redis
+    participant W as Worker
+    participant N as NotificationService
+    participant M as IMailProvider
+
+    C->>S: execute(pedido)
+    S->>OR: create(pedido)
+    OR-->>S: pedido gravado
+    S->>Q: publish(pedido)
+    Q->>R: LPUSH
+    S-->>C: orderId
+    C-->>C: responde 200, sem esperar o e-mail
+    Note over R,W: depois, de forma independente
+    W->>R: BRPOP (espera até chegar um item)
+    R-->>W: mensagem
+    W->>N: sendOrderConfirmationFromMessage(mensagem)
+    N->>M: sendMail(...)
+    W->>W: registra no log: Email do pedido #id enviado
+```
+
+### Por que uma lista e não publish/subscribe
+
+| | Lista (`LPUSH` / `BRPOP`) | Publish/subscribe |
+|---|---|---|
+| Worker parado | A mensagem **espera** na lista | A mensagem **se perde** |
+| Dois workers | Cada mensagem vai para **um só** (o `BRPOP` é atômico) | **Todos** recebem: o e-mail sairia duas vezes |
+| Modelo | Fila de trabalho: divide o trabalho | Difusão: repete o evento para todos |
+
+O pub/sub falharia nos dois cenários que o projeto exige (worker parado e dois workers). O argumento completo está no ADR.
+
+### A mensagem da fila
+
+O Redis só guarda texto, então o pedido é serializado em JSON. Só os campos que o e-mail precisa entram na mensagem:
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | número | Número do pedido (aparece no assunto do e-mail e no log do worker) |
+| `customer` | texto | Destinatário |
+| `total` | número | Valor do pedido |
+| `items` | texto JSON | Os produtos com a quantidade, como gravados no banco. O worker reconstrói os produtos com a `ProductFactory` |
+
+O `createdAt` fica de fora, porque um `Date` viraria texto ao passar por JSON. Métodos de classe também não atravessam a fila: só dados.
+
+### Os arquivos do Projeto 4
+
+| Arquivo | Papel |
+|---|---|
+| `src/queues/IOrderQueue.ts` | Contrato da fila (`publish`) e o tipo `OrderMessage`. Não importa o Redis |
+| `src/queues/RedisOrderQueue.ts` | Implementação: serializa o pedido e faz o `LPUSH`. É a única classe da API que conhece o Redis |
+| `src/queues/queueNames.ts` | O nome da lista (`orders:email`), em um lugar só, usado pela API e pelo worker |
+| `src/lib/redis.ts` | Cliente Redis único (como o `lib/prisma.ts`), com falha imediata se faltar o `REDIS_URL` |
+| `src/worker.ts` | Segundo ponto de entrada: lê a fila com `BRPOP` e envia o e-mail |
+| `src/services/OrderService.ts` | Grava, publica e responde |
+| `src/services/NotificationService.ts` | Ganhou `sendOrderConfirmationFromMessage` |
+| `src/container/container.ts` e `types.ts` | Registram a `RedisOrderQueue` (singleton) |
+| `compose.yaml` | Serviços `redis` e `worker` |
+| `docs/adr-001-fila-de-email.md` | Registro da decisão |
+
+### Os serviços novos do Compose
+
+| Serviço | Decisão | Motivo |
+|---|---|---|
+| `redis` | Imagem `redis:7-alpine`, **sem `ports`** | Só os containers da rede interna falam com ele |
+| `redis` | Healthcheck com `redis-cli ping` | A `api` e o `worker` só sobem quando o Redis responde |
+| `redis` | Persistência AOF (`--appendonly yes`) e volume `redis_data` | Os pedidos que esperam na fila sobrevivem a um restart do Redis |
+| `worker` | `build: .` (o mesmo `Dockerfile` da API) | Uma imagem, dois usos |
+| `worker` | `command: npm run worker` | Substitui o `CMD` do Dockerfile (`npm start`), que criaria as tabelas e subiria o servidor |
+| `worker` | Sem `container_name` e sem porta publicada | Permite `docker compose up -d --scale worker=2` |
+| `worker` | `restart: unless-stopped` | Se o processo cair, o Docker o levanta de novo |
+| `api` | `depends_on` também do `redis` (`service_healthy`) | A API publica na fila, então o Redis precisa estar pronto |
+
+### Decisões de design e armadilhas
+
+| Decisão | Motivo |
+|---|---|
+| A `RedisOrderQueue` é registrada **fora** do `if/else` dos modos | API e worker são processos diferentes. Uma fila em memória não atravessa processos, então nos dois modos a fila é o Redis |
+| Se o `publish` falhar, a API registra o erro (com o número do pedido) e **responde normalmente** | O pedido já foi pago e gravado, e uma tarefa secundária não pode invalidá-lo. O custo é uma falha silenciosa (ver o ADR) |
+| O `try/catch` do worker fica **dentro** do laço | Uma mensagem estragada ou uma falha de e-mail não pode derrubar o worker, senão os pedidos seguintes ficam parados |
+| A mensagem que falhou é registrada no log do worker | O `BRPOP` já a retirou da fila, então o log é o único rastro dela |
+| `BRPOP` com tempo limite de 5 segundos | Com `0`, o laço nunca "acordaria" para olhar o pedido de parada |
+| O worker trata `SIGTERM` e `SIGINT` | Termina o e-mail em andamento antes de sair, para não perder uma mensagem já retirada |
+| Se a leitura da fila falhar, o worker espera um pouco e tenta de novo | Uma queda breve do Redis não derruba o processo |
+| O número do pedido vai na linha de log do envio | É o que permite provar que cada pedido foi enviado uma vez só (critério 4) |
+| O método novo mora no `NotificationService` | O worker fica fino (só lê da fila e repassa), e a conversão "mensagem → produtos" fica em um service testável |
+| O `NotificationService` continua registrado no container | Deixou de ser usado pelo `OrderService`, mas o worker o pega do container |
+| O `worker.ts` começa com `import 'reflect-metadata'` e `import 'dotenv/config'` | É um ponto de entrada novo: sem eles, os decorators do Inversify e o `APP_ENV` não funcionam |
+| `container.get` só aparece no `worker.ts` e no `app.ts` | A "raiz" da aplicação. Dentro de um service, viraria um *service locator* |
+| Conexão preguiçosa com o Redis na API | A primeira publicação abre a conexão e as seguintes a reaproveitam |
+
+### Estrutura: o que o Projeto 4 acrescenta
+
+```text
+compose.yaml                     # MUDOU: serviços redis e worker, api espera o redis
+.env.example                     # MUDOU: REDIS_URL
+package.json                     # MUDOU: dependência redis e script worker
+docs/
+└── adr-001-fila-de-email.md     # NOVO
+src/
+├── queues/                      # NOVO
+│   ├── IOrderQueue.ts
+│   ├── RedisOrderQueue.ts
+│   └── queueNames.ts
+├── lib/
+│   └── redis.ts                 # NOVO
+├── container/
+│   ├── types.ts                 # MUDOU: símbolo OrderQueue
+│   └── container.ts             # MUDOU: bind da RedisOrderQueue
+├── services/
+│   ├── OrderService.ts          # MUDOU: publica na fila em vez de notificar
+│   └── NotificationService.ts   # MUDOU: sendOrderConfirmationFromMessage
+├── controllers/
+│   └── OrderController.ts       # MUDOU: a resposta do POST não tem emailPreview
+└── worker.ts                    # NOVO
+```
+
+### Como verificar os critérios de aceite
+
+| # | Critério | Como provar |
+|---|---|---|
+| 1 | Clone limpo sobe sem erro | Em uma pasta temporária: clone, `cp .env.example .env`, `docker compose up --build`, e `docker compose ps` com os quatro serviços de pé |
+| 2 | `POST` não espera o e-mail | `curl -s -o /dev/null -w "%{time_total}\n" -X POST ...` (resposta rápida) e depois `docker compose logs worker` (o e-mail aparece lá) |
+| 3 | Worker parado, os pedidos esperam | `docker compose stop worker`, faça alguns `POST`, `docker compose exec redis redis-cli LLEN orders:email` (o número cresce), `docker compose start worker` (os e-mails saem e o `LLEN` volta a 0) |
+| 4 | Dois workers, cada pedido uma vez | `docker compose up -d --scale worker=2`, envie vários `POST` e rode `docker compose logs worker \| grep -o "pedido #[0-9]*" \| sort \| uniq -d` (não deve imprimir nada) |
+| 5 | `services/` e `controllers/` não importam o Redis | `grep -rniE "redis" src/services src/controllers \|\| echo OK` |
+| 6 | ADR no repositório | `ls docs/adr-001-fila-de-email.md` |
+
+Verificação extra: `docker compose port redis 6379` não deve devolver nenhum endereço (a porta não está publicada).
+
+### Status do Projeto 4
+
+<!-- Marque as caixas conforme confirmar cada item rodando o projeto. -->
+
+- [x] `npm install redis`, script `worker` e `REDIS_URL` configurados
+- [x] `IOrderQueue`, `RedisOrderQueue`, `lib/redis.ts` e o bind no container
+- [x] `OrderService` publica na fila em vez de chamar o `NotificationService`
+- [x] `worker.ts` consumindo a fila e enviando o e-mail
+- [x] `compose.yaml` com `redis` (sem porta publicada) e `worker`
+- [x] Critério 2: o `POST` responde sem esperar o e-mail
+- [x] Critério 3: com o worker parado, os pedidos esperam e saem ao religar
+- [x] Critério 4: com dois workers, nenhum pedido repetido
+- [x] Critério 5: nenhum arquivo de `services/` ou `controllers/` importa o Redis
+- [x] Critério 6: o ADR está no repositório
+- [x] Clone limpo testado e repositório público conferido em janela anônima
 
 ---
 
@@ -617,7 +816,15 @@ docker compose up --build
 | **Imagem e container** | A imagem é a receita congelada, o container é ela em execução | `Dockerfile` e serviço `api` |
 | **Orquestração (Compose)** | Define vários containers, a rede entre eles e os volumes em um único arquivo | `compose.yaml` |
 | **Volume** | Pasta que sobrevive ao container | `postgres_data` |
-| **Healthcheck** | Comando que informa se um serviço está realmente pronto | `pg_isready` no serviço `banco` |
+| **Healthcheck** | Comando que informa se um serviço está realmente pronto | `pg_isready` no `banco` e `redis-cli ping` no `redis` |
+| **Fila de mensagens** | Um intermediário onde o produtor deixa o trabalho e o consumidor o retira depois | Lista do Redis entre a `api` e o `worker` |
+| **Produtor e consumidor** | Quem coloca as mensagens na fila e quem as processa | `RedisOrderQueue` (API) e `worker.ts` |
+| **Lista FIFO no Redis** | `LPUSH` insere de um lado e `BRPOP` retira do outro, mantendo a ordem de chegada | Fila `orders:email` |
+| **Operação bloqueante** | O comando espera (sem consumir CPU) até haver algo para ler | `BRPOP` com tempo limite |
+| **Atomicidade** | A retirada de um item da lista é indivisível, então cada item vai para um só consumidor | Dois workers sem e-mail duplicado |
+| **Entrega no máximo uma vez** | A mensagem é retirada antes de ser processada: sem duplicar, mas pode se perder se o consumidor cair | `BRPOP` (ver o ADR) |
+| **Encerramento limpo** | Terminar o trabalho em andamento ao receber o sinal de parada | Tratamento de `SIGTERM` no worker |
+| **ADR** | Documento curto que registra uma decisão de arquitetura e seus motivos | `docs/adr-001-fila-de-email.md` |
 
 ---
 
@@ -634,7 +841,11 @@ docker compose up --build
 - Um *middleware* de erro do Express devolveria sempre JSON limpo, inclusive para corpos inválidos (hoje o Express devolve uma página HTML com o caminho de arquivos).
 - O `PrismaClient` poderia ser injetado nos repositórios pelo construtor, o que facilitaria testes e o encerramento da conexão.
 - O Postgres não publica porta, então ferramentas como Prisma Studio ou clientes de banco da máquina não conseguem se conectar. Para depurar, é possível publicar a porta temporariamente ou usar `docker compose exec banco psql`.
+- O e-mail é enviado com entrega **no máximo uma vez**: se o worker cair depois de retirar a mensagem da fila, aquele e-mail se perde. Não há reenvio automático nem fila de mensagens com falha (veja o ADR 001).
+- Se a API não conseguir publicar na fila, ela registra o erro no log e responde normalmente, então o cliente não é avisado de que o e-mail não vai sair.
+- Os e-mails que falham ficam apenas no log do worker, sem painel de acompanhamento.
+- A fila não tem testes automatizados. Um `FakeOrderQueue` em memória permitiria testar o `OrderService` sem Redis.
 
 ---
 
-Autor: Thiago
+Autor: Thiago Caixeta.
