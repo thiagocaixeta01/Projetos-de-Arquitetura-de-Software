@@ -1,0 +1,1 @@
+export const ORDER_EMAIL_QUEUE = 'orders:email'

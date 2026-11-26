@@ -2,7 +2,8 @@ import { IMailProvider } from '../providers/IMailProvider';
 import { IProduct } from '../domain/IProduct';
 import { inject, injectable } from 'inversify';
 import { TYPES } from '../container/types';
-
+import { OrderMessage } from '../queues/IOrderQueue';
+import { ProductFactory } from '../domain/ProductFactory';
 @injectable()
 export class NotificationService {
   constructor( @inject(TYPES.MailProvider) private mailProvider: IMailProvider) {}
@@ -32,5 +33,19 @@ export class NotificationService {
     });
 
     return info || null;
+  }
+
+  async sendOrderConfirmationFromMessage(message: OrderMessage): Promise<string | null> {
+    const items: { 
+      id: number; 
+      name: string; 
+      type: string; 
+      price: number; 
+      quantity: number 
+    }[] = JSON.parse(message.items);
+
+    const products = items.map((item) => ProductFactory.createProduct(item));
+
+    return this.sendOrderConfirmation(message.customer, message.id, message.total, products);
   }
 }
