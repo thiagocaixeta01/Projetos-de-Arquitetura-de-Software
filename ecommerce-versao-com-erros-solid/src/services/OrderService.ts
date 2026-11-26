@@ -7,13 +7,15 @@ import { ProductFactory } from "../domain/ProductFactory";
 import { PaymentMethodRegistry } from "../payments/PaymentMethodRegistry";
 import { inject, injectable } from "inversify";
 import { TYPES } from "../container/types";
+import { IOrderQueue } from "../queues/IOrderQueue";
+import logger from "../lib/logger";
 
 @injectable()
 export class OrderService {
   constructor(
     @inject(TYPES.ProductRepository) private productRepository: IProductRepository,
     @inject(TYPES.OrderRepository) private orderRepository: IOrderRepository,
-    @inject(TYPES.NotificationService) private notificationService: NotificationService,
+    @inject(TYPES.OrderQueue) private orderQueue: IOrderQueue,
     @inject(TYPES.PaymentMethodRegistry) private paymentMethodRegistry: PaymentMethodRegistry
   ) {}
 
@@ -61,16 +63,15 @@ export class OrderService {
       status: "confirmed",
     });
 
-    // 5. NOTIFICAR
-    const emailPreview = await this.notificationService.sendOrderConfirmation(
-    input.customer,
-    order.id,   
-    total,
-    products,   
-    );
+    // 5. PUBLICAR NA FILA
+    try {
+      await this.orderQueue.publish(order);
+    } catch (error: any) {
+      logger.error(`Pedido #${order.id} gravado, mas não foi possível publicar na fila de e-mail: ${error.message}`);
+    }
 
     // 6. RETORNAR
-    return { orderId: order.id, emailPreview };
+    return { orderId: order.id };
   }
 
   async getById(id: number): Promise<Order> {

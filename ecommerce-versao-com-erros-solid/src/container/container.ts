@@ -21,6 +21,8 @@ import { PaymentMethodRegistry } from "../payments/PaymentMethodRegistry";
 import { NotificationService } from "../services/NotificationService";
 import { OrderService } from "../services/OrderService";
 import { OrderController } from "../controllers/OrderController";
+import { IOrderQueue } from "../queues/IOrderQueue";
+import { RedisOrderQueue } from "../queues/RedisOrderQueue";
 
 const mode = process.env.APP_ENV ?? 'dev';
 
@@ -39,6 +41,8 @@ if (mode === 'test') {
 }
 
 container.bind<IProductRepository>(TYPES.ProductRepository).to(PrismaProductRepository).inSingletonScope();
+
+container.bind<IOrderQueue>(TYPES.OrderQueue).to(RedisOrderQueue).inSingletonScope();
 
 container.bind<IPaymentMethod>(TYPES.PaymentMethod).to(CreditCardPayment);
 container.bind<IPaymentMethod>(TYPES.PaymentMethod).to(DebitCardPayment);

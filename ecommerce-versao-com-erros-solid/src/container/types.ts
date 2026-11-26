@@ -6,5 +6,6 @@ export const TYPES = {
     PaymentMethodRegistry: Symbol.for('PaymentMethodRegistry'),
     NotificationService: Symbol.for('NotificationService'),
     OrderService: Symbol.for('OrderService'),
-    OrderController: Symbol.for('OrderController')
+    OrderController: Symbol.for('OrderController'),
+    OrderQueue: Symbol.for('OrderQueue'),
 }
